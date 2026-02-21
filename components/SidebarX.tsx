@@ -1,23 +1,29 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpRight, Hash } from 'lucide-react';
 import { useXTrending } from '@/lib/hooks/useXTrending';
 
+const ITEMS_PER_PAGE = 3;
 const ROTATION_INTERVAL = 60_000; // 60 seconds
 const TICK = 100;
 
 export function SidebarX() {
   const { topics, loading, isLive } = useXTrending();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [pageIndex, setPageIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const elapsedRef = useRef(0);
 
-  // Reset index when topics change
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(topics.length / ITEMS_PER_PAGE)),
+    [topics.length]
+  );
+
+  // Reset page when topics change
   useEffect(() => {
-    setCurrentIndex(0);
+    setPageIndex(0);
     setProgress(0);
     elapsedRef.current = 0;
   }, [topics.length]);
@@ -31,16 +37,19 @@ export function SidebarX() {
       setProgress((elapsedRef.current / ROTATION_INTERVAL) * 100);
 
       if (elapsedRef.current >= ROTATION_INTERVAL) {
-        setCurrentIndex((prev) => (prev + 1) % topics.length);
+        setPageIndex((prev) => (prev + 1) % totalPages);
         elapsedRef.current = 0;
         setProgress(0);
       }
     }, TICK);
 
     return () => clearInterval(timer);
-  }, [topics.length, isPaused]);
+  }, [topics.length, isPaused, totalPages]);
 
-  const currentTopic = topics[currentIndex];
+  const currentTopics = useMemo(() => {
+    const start = pageIndex * ITEMS_PER_PAGE;
+    return topics.slice(start, start + ITEMS_PER_PAGE);
+  }, [topics, pageIndex]);
 
   return (
     <div
@@ -71,52 +80,63 @@ export function SidebarX() {
         )}
 
         {/* Content */}
-        <div className="min-h-[120px] flex items-center justify-center">
+        <div className="min-h-[340px] flex items-start justify-center">
           {loading ? (
-            // Loading skeleton
-            <div className="w-full space-y-3 animate-pulse">
-              <div className="h-4 bg-white/10 rounded w-2/3" />
-              <div className="h-3 bg-white/10 rounded w-1/3" />
-              <div className="h-2 bg-white/10 rounded w-1/4 mt-4" />
+            // Loading skeleton — 3 items
+            <div className="w-full space-y-5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="space-y-3 animate-pulse">
+                  <div className="h-4 bg-white/10 rounded w-2/3" />
+                  <div className="h-3 bg-white/10 rounded w-1/3" />
+                  <div className="h-2 bg-white/10 rounded w-1/4 mt-2" />
+                </div>
+              ))}
             </div>
           ) : topics.length === 0 ? (
             <p className="text-xs text-[#99A1AF] text-center">
               Unable to load trends
             </p>
-          ) : currentTopic ? (
+          ) : currentTopics.length > 0 ? (
             <AnimatePresence mode="wait">
-              <motion.a
-                key={currentTopic.id}
-                href={currentTopic.searchUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <motion.div
+                key={pageIndex}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-                className="block w-full group cursor-pointer"
+                className="w-full flex flex-col gap-4"
               >
-                {/* Topic category label */}
-                <span className="inline-flex items-center gap-1 text-[10px] text-[#99A1AF] uppercase tracking-wider mb-2">
-                  <Hash className="w-3 h-3" />
-                  Trending
-                </span>
+                {currentTopics.map((topic) => (
+                  <a
+                    key={topic.id}
+                    href={topic.searchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full group cursor-pointer"
+                  >
+                    {/* Topic category label */}
+                    <span className="inline-flex items-center gap-1 text-[10px] text-[#99A1AF] uppercase tracking-wider mb-2">
+                      <Hash className="w-3 h-3" />
+                      Trending
+                    </span>
 
-                {/* Topic name */}
-                <p className="text-base font-bold text-white leading-snug mb-2 line-clamp-2 group-hover:text-[#BFF549] transition-colors duration-300">
-                  {currentTopic.topic}
-                </p>
+                    {/* Topic name */}
+                    <p className="text-base font-bold text-white leading-snug mb-2 line-clamp-2 group-hover:text-[#BFF549] transition-colors duration-300">
+                      {topic.topic}
+                    </p>
 
-                {/* Post count + arrow */}
-                <div className="flex items-center justify-between text-[11px] text-[#99A1AF]">
-                  {currentTopic.postCount ? (
-                    <span>{currentTopic.postCount}</span>
-                  ) : (
-                    <span>Trending now</span>
-                  )}
-                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 text-[#BFF549] transition-opacity duration-300" />
-                </div>
-              </motion.a>
+                    {/* Post count + arrow */}
+                    <div className="flex items-center justify-between text-[11px] text-[#99A1AF]">
+                      {topic.postCount ? (
+                        <span>{topic.postCount}</span>
+                      ) : (
+                        <span>Trending now</span>
+                      )}
+                      <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 text-[#BFF549] transition-opacity duration-300" />
+                    </div>
+                  </a>
+                ))}
+              </motion.div>
             </AnimatePresence>
           ) : null}
         </div>
@@ -124,7 +144,7 @@ export function SidebarX() {
         {/* Footer */}
         {topics.length > 0 && (
           <div className="flex items-center justify-between text-[10px] text-[#99A1AF]/50">
-            <span>{currentIndex + 1} / {topics.length}</span>
+            <span>{pageIndex + 1} / {totalPages}</span>
             <div className="flex items-center gap-1">
               {isPaused && <span className="uppercase tracking-wider">Paused</span>}
               {!isLive && !isPaused && <span className="uppercase tracking-wider">Simulated</span>}

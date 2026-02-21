@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpRight, MessageSquare, ArrowUp } from 'lucide-react';
 import { useRedditTrending } from '@/lib/hooks/useRedditTrending';
@@ -11,19 +11,25 @@ function formatCount(n: number): string {
   return n.toString();
 }
 
+const ITEMS_PER_PAGE = 3;
 const ROTATION_INTERVAL = 60_000; // 60 seconds
 const TICK = 100;
 
 export function SidebarReddit() {
-  const { posts, loading } = useRedditTrending();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const { posts, loading, isLive } = useRedditTrending();
+  const [pageIndex, setPageIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const elapsedRef = useRef(0);
 
-  // Reset index when posts change
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(posts.length / ITEMS_PER_PAGE)),
+    [posts.length]
+  );
+
+  // Reset page when posts change
   useEffect(() => {
-    setCurrentIndex(0);
+    setPageIndex(0);
     setProgress(0);
     elapsedRef.current = 0;
   }, [posts.length]);
@@ -37,16 +43,19 @@ export function SidebarReddit() {
       setProgress((elapsedRef.current / ROTATION_INTERVAL) * 100);
 
       if (elapsedRef.current >= ROTATION_INTERVAL) {
-        setCurrentIndex((prev) => (prev + 1) % posts.length);
+        setPageIndex((prev) => (prev + 1) % totalPages);
         elapsedRef.current = 0;
         setProgress(0);
       }
     }, TICK);
 
     return () => clearInterval(timer);
-  }, [posts.length, isPaused]);
+  }, [posts.length, isPaused, totalPages]);
 
-  const currentPost = posts[currentIndex];
+  const currentPosts = useMemo(() => {
+    const start = pageIndex * ITEMS_PER_PAGE;
+    return posts.slice(start, start + ITEMS_PER_PAGE);
+  }, [posts, pageIndex]);
 
   return (
     <div
@@ -77,58 +86,69 @@ export function SidebarReddit() {
         )}
 
         {/* Content */}
-        <div className="min-h-[140px] flex items-center justify-center">
+        <div className="min-h-[340px] flex items-start justify-center">
           {loading ? (
-            // Loading skeleton
-            <div className="w-full space-y-3 animate-pulse">
-              <div className="h-3 bg-white/10 rounded w-3/4" />
-              <div className="h-3 bg-white/10 rounded w-full" />
-              <div className="h-3 bg-white/10 rounded w-1/2" />
-              <div className="flex gap-3 mt-4">
-                <div className="h-2 bg-white/10 rounded w-16" />
-                <div className="h-2 bg-white/10 rounded w-12" />
-              </div>
+            // Loading skeleton — 3 items
+            <div className="w-full space-y-5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="space-y-3 animate-pulse">
+                  <div className="h-3 bg-white/10 rounded w-3/4" />
+                  <div className="h-3 bg-white/10 rounded w-full" />
+                  <div className="h-3 bg-white/10 rounded w-1/2" />
+                  <div className="flex gap-3 mt-2">
+                    <div className="h-2 bg-white/10 rounded w-16" />
+                    <div className="h-2 bg-white/10 rounded w-12" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : posts.length === 0 ? (
             <p className="text-xs text-[#99A1AF] text-center">
               Unable to load Reddit trends
             </p>
-          ) : currentPost ? (
+          ) : currentPosts.length > 0 ? (
             <AnimatePresence mode="wait">
-              <motion.a
-                key={currentPost.id}
-                href={currentPost.permalink}
-                target="_blank"
-                rel="noopener noreferrer"
+              <motion.div
+                key={pageIndex}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-                className="block w-full group cursor-pointer"
+                className="w-full flex flex-col gap-4"
               >
-                {/* Subreddit badge */}
-                <span className="inline-block px-2 py-0.5 text-[10px] font-bold uppercase bg-orange-500 text-white mb-2">
-                  {currentPost.subreddit}
-                </span>
+                {currentPosts.map((post) => (
+                  <a
+                    key={post.id}
+                    href={post.permalink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full group cursor-pointer"
+                  >
+                    {/* Subreddit badge */}
+                    <span className="inline-block px-2 py-0.5 text-[10px] font-bold uppercase bg-orange-500 text-white mb-2">
+                      {post.subreddit}
+                    </span>
 
-                {/* Title */}
-                <p className="text-sm font-medium text-white leading-snug mb-3 line-clamp-2 group-hover:text-[#BFF549] transition-colors duration-300">
-                  {currentPost.title}
-                </p>
+                    {/* Title */}
+                    <p className="text-sm font-medium text-white leading-snug mb-3 line-clamp-2 group-hover:text-[#BFF549] transition-colors duration-300">
+                      {post.title}
+                    </p>
 
-                {/* Stats */}
-                <div className="flex items-center gap-3 text-[11px] text-[#99A1AF]">
-                  <span className="flex items-center gap-1">
-                    <ArrowUp className="w-3 h-3 text-orange-500" />
-                    {formatCount(currentPost.upvotes)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="w-3 h-3" />
-                    {formatCount(currentPost.commentCount)}
-                  </span>
-                  <ArrowUpRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 text-[#BFF549] transition-opacity duration-300" />
-                </div>
-              </motion.a>
+                    {/* Stats */}
+                    <div className="flex items-center gap-3 text-[11px] text-[#99A1AF]">
+                      <span className="flex items-center gap-1">
+                        <ArrowUp className="w-3 h-3 text-orange-500" />
+                        {formatCount(post.upvotes)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {formatCount(post.commentCount)}
+                      </span>
+                      <ArrowUpRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 text-[#BFF549] transition-opacity duration-300" />
+                    </div>
+                  </a>
+                ))}
+              </motion.div>
             </AnimatePresence>
           ) : null}
         </div>
@@ -136,8 +156,11 @@ export function SidebarReddit() {
         {/* Page indicator */}
         {posts.length > 0 && (
           <div className="flex items-center justify-between text-[10px] text-[#99A1AF]/50">
-            <span>{currentIndex + 1} / {posts.length}</span>
-            {isPaused && <span className="uppercase tracking-wider">Paused</span>}
+            <span>{pageIndex + 1} / {totalPages}</span>
+            <div className="flex items-center gap-1">
+              {isPaused && <span className="uppercase tracking-wider">Paused</span>}
+              {!isLive && !isPaused && <span className="uppercase tracking-wider">Simulated</span>}
+            </div>
           </div>
         )}
       </div>

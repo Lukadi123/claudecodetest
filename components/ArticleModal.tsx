@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Article } from '@/lib/types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ExternalLink, Loader2, Heart } from 'lucide-react';
+import { X, ExternalLink, Loader2, Heart, Sparkles } from 'lucide-react';
 import { format_timestamp } from '@/lib/tools/format_timestamp';
 import Image from 'next/image';
 
@@ -23,6 +23,9 @@ export function ArticleModal({ article, isSaved, onToggleSave, onClose }: Articl
     const [blocks, setBlocks] = useState<ContentBlock[]>([]);
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(false);
+    const [summary, setSummary] = useState<string | null>(null);
+    const [summaryLoading, setSummaryLoading] = useState(false);
+    const summaryControllerRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         if (!article) return;
@@ -32,6 +35,9 @@ export function ArticleModal({ article, isSaved, onToggleSave, onClose }: Articl
         setBlocks([]);
         setFailed(false);
         setLoading(true);
+        setSummary(null);
+        setSummaryLoading(false);
+        if (summaryControllerRef.current) summaryControllerRef.current.abort();
 
         fetch(`/api/article?url=${encodeURIComponent(article.url)}`, {
             signal: controller.signal,
@@ -58,6 +64,48 @@ export function ArticleModal({ article, isSaved, onToggleSave, onClose }: Articl
 
         return () => controller.abort();
     }, [article]);
+
+    // Fetch AI summary once article content is loaded
+    useEffect(() => {
+        if (!article || blocks.length === 0) return;
+
+        const controller = new AbortController();
+        summaryControllerRef.current = controller;
+        setSummaryLoading(true);
+
+        // Build plain text from paragraph blocks for the summary prompt
+        const plainText = blocks
+            .filter((b) => b.type === 'paragraph')
+            .map((b) => b.content)
+            .join('\n\n');
+
+        fetch('/api/summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({ title: article.title, content: plainText }),
+        })
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then((data) => {
+                if (!controller.signal.aborted && data.summary) {
+                    setSummary(data.summary);
+                }
+            })
+            .catch((err) => {
+                if (err instanceof DOMException && err.name === 'AbortError') return;
+                // Summary failure is non-critical — article still renders
+                console.warn('[ArticleModal] Summary generation failed:', err);
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setSummaryLoading(false);
+            });
+
+        return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [blocks]);
 
     // Close on Escape key
     useEffect(() => {
@@ -184,6 +232,28 @@ export function ArticleModal({ article, isSaved, onToggleSave, onClose }: Articl
                             {/* Article content */}
                             {!loading && !failed && (
                                 <div className="max-w-2xl mx-auto">
+                                    {/* AI Summary */}
+                                    {(summaryLoading || summary) && (
+                                        <div className="mb-8 p-5 border border-[#93b44a]/30 bg-[#93b44a]/5">
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <Sparkles className="w-4 h-4 text-[#BFF549]" />
+                                                <h3 className="text-sm font-bold text-[#BFF549] uppercase tracking-wider">
+                                                    Short Summary
+                                                </h3>
+                                            </div>
+                                            {summaryLoading ? (
+                                                <div className="flex items-center gap-2">
+                                                    <Loader2 className="w-4 h-4 text-[#BFF549] animate-spin" />
+                                                    <p className="text-sm text-[#99A1AF]">Generating summary...</p>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-[#d1d5db] leading-relaxed">
+                                                    {summary}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {blocks.map((block, i) => {
                                         if (block.type === 'heading') {
                                             return (
