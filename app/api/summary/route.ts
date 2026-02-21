@@ -3,10 +3,6 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export const dynamic = 'force-dynamic';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
 export async function POST(request: NextRequest) {
   try {
     const { title, content } = await request.json();
@@ -24,6 +20,11 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Create client inside handler so the env var is read at runtime, not build time
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
 
     // Truncate content to avoid excessive token usage (roughly 12k chars ≈ 3k tokens)
     const truncatedContent = content.slice(0, 12000);
